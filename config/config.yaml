@@ -1,0 +1,85 @@
+project:
+  name: sensor-anomaly-detection
+  version: "1.0.0"
+  description: "LSTM Autoencoder for Industrial Sensor Anomaly Detection"
+
+data:
+  dataset: "NASA CMAPSS FD001"
+  raw_path: "data/raw/"
+  processed_path: "data/processed/"
+  train_file: "train_FD001.txt"
+  test_file: "test_FD001.txt"
+  rul_file: "RUL_FD001.txt"
+  sequence_length: 50        # timesteps fed into LSTM
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  sensor_columns:
+    - s1
+    - s2
+    - s3
+    - s4
+    - s5
+    - s6
+    - s7
+    - s8
+    - s9
+    - s10
+    - s11
+    - s12
+    - s13
+    - s14
+    - s15
+    - s16
+    - s17
+    - s18
+    - s19
+    - s20
+    - s21
+  drop_sensors: [s1, s5, s6, s10, s16, s18, s19]  # near-zero variance
+
+model:
+  architecture: "lstm_autoencoder"
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.2
+  latent_dim: 32
+  learning_rate: 0.001
+  batch_size: 64
+  epochs: 50
+  early_stopping_patience: 10
+  reconstruction_threshold_percentile: 95  # anomaly threshold
+
+training:
+  seed: 42
+  device: "cuda"   # falls back to cpu if unavailable
+  checkpoint_dir: "outputs/models/"
+  log_dir: "outputs/logs/"
+
+evaluation:
+  metrics:
+    - reconstruction_error
+    - precision
+    - recall
+    - f1
+    - auc_roc
+  shap_background_samples: 100
+  shap_explain_samples: 50
+
+aws:
+  region: "eu-central-1"           # Frankfurt — relevant for German clients
+  s3_bucket: "sensor-anomaly-pipeline"
+  sagemaker_role: "arn:aws:iam::ACCOUNT_ID:role/SageMakerExecutionRole"
+  instance_type_training: "ml.m5.xlarge"
+  instance_type_inference: "ml.t2.medium"
+  model_package_group: "SensorAnomalyModels"
+  endpoint_name: "sensor-anomaly-endpoint"
+
+monitoring:
+  data_quality_check_interval_hours: 24
+  drift_threshold: 0.15             # KL divergence threshold
+  alert_email: "mlops-alerts@yourorg.com"
+
+mlflow:
+  tracking_uri: "http://localhost:5000"
+  experiment_name: "sensor-anomaly-detection"
