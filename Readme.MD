@@ -1,4 +1,4 @@
-# Sensor Anomaly Detection Pipeline
+# Sensor Anomaly Detection
 
 **End-to-end MLOps system for industrial predictive maintenance on AWS SageMaker**
 
@@ -270,6 +270,7 @@ Honest reporting is a core principle of responsible ML engineering. The pipeline
 * **MLflow** — Experiment tracking
 * **boto3** — AWS SDK
 * **Docker** — Custom training container
+* **[industrial-sensor-anomaly-detection](https://github.com/danielamissah/industrial-sensor-anomaly-detection)**
 
 ---
 
@@ -278,9 +279,3 @@ Honest reporting is a core principle of responsible ML engineering. The pipeline
 * Saxena, A. et al. (2008). *Damage Propagation Modeling for Aircraft Engine Run-to-Failure Simulation.* NASA.
 * Lundberg, S. & Lee, S.I. (2017). *A Unified Approach to Interpreting Model Predictions.* NeurIPS.
 * Hochreiter, S. & Schmidhuber, J. (1997). *Long Short-Term Memory.* Neural Computation, 9(8).
-
----
-
-## License
-
-MIT License — see [LICENSE](https://claude.ai/chat/LICENSE) for details.
