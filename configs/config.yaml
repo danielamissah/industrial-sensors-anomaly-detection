@@ -1,0 +1,82 @@
+project:
+  name: sensor-anomaly-detection
+  version: "1.0.0"
+  description: "LSTM Autoencoder for Industrial Sensor Anomaly Detection"
+
+data:
+  dataset: "NASA CMAPSS Turbofan — All Subsets (FD001-FD004)"
+  raw_path: "data/raw/"
+  processed_path: "data/processed/"
+
+  subsets:
+    FD001:
+      train_file: "train_FD001.txt"
+      test_file:  "test_FD001.txt"
+      rul_file:   "RUL_FD001.txt"
+      description: "1 operating condition, 1 fault mode (HPC degradation)"
+    FD002:
+      train_file: "train_FD002.txt"
+      test_file:  "test_FD002.txt"
+      rul_file:   "RUL_FD002.txt"
+      description: "6 operating conditions, 1 fault mode (HPC degradation)"
+    FD003:
+      train_file: "train_FD003.txt"
+      test_file:  "test_FD003.txt"
+      rul_file:   "RUL_FD003.txt"
+      description: "1 operating condition, 2 fault modes (HPC + fan degradation)"
+    FD004:
+      train_file: "train_FD004.txt"
+      test_file:  "test_FD004.txt"
+      rul_file:   "RUL_FD004.txt"
+      description: "6 operating conditions, 2 fault modes (HPC + fan degradation)"
+
+  sequence_length: 50
+  anomaly_threshold_rul: 30
+  val_fraction: 0.1
+  drop_sensors: [s1, s5, s6, s10, s16, s18, s19]
+
+model:
+  architecture: "lstm_autoencoder"
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.2
+  latent_dim: 32
+  learning_rate: 0.001
+  batch_size: 64
+  epochs: 50
+  early_stopping_patience: 10
+  reconstruction_threshold_percentile: 95
+
+training:
+  seed: 42
+  device: "cuda"
+  checkpoint_dir: "outputs/models/"
+  log_dir: "outputs/logs/"
+
+evaluation:
+  metrics:
+    - reconstruction_error
+    - precision
+    - recall
+    - f1
+    - auc_roc
+  shap_background_samples: 100
+  shap_explain_samples: 50
+
+aws:
+  region: "${AWS_REGION}"
+  s3_bucket: "${AWS_S3_BUCKET}"
+  sagemaker_role: "${SAGEMAKER_ROLE_ARN}"
+  instance_type_training: "ml.c5.xlarge"
+  instance_type_inference: "ml.t2.medium"
+  model_package_group: "${MODEL_PACKAGE_GROUP}"
+  endpoint_name: "${SAGEMAKER_ENDPOINT_NAME}"
+
+monitoring:
+  data_quality_check_interval_hours: 24
+  drift_threshold: 0.15
+  alert_email: ""
+
+mlflow:
+  tracking_uri: "http://localhost:5001"
+  experiment_name: "sensor-anomaly-detection"

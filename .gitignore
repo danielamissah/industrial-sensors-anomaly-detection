@@ -1,0 +1,39 @@
+# Data — never commit raw or processed data
+data/raw/
+data/processed/
+
+# Model outputs — large binary files
+outputs/models/
+outputs/figures/
+outputs/reports/
+outputs/logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# AWS credentials — NEVER commit
+.aws/
+*.pem
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MLflow
+mlruns/
+README_ProjectBrief.docx
+mlflow.db

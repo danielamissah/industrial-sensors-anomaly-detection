@@ -1,0 +1,6 @@
+mlflow==2.10.0
+loguru
+PyYAML
+scikit-learn
+numpy
+pandas

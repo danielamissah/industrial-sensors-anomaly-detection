@@ -1,14 +1,8 @@
 """
 SageMaker Model Monitor setup for data quality and drift detection.
-
-Monitors:
-  1. Data Quality     — feature distribution vs training baseline
-  2. Model Quality    — anomaly rate drift over time
-  3. Custom metric    — mean reconstruction error per hour
-
-Alerts via CloudWatch when drift exceeds thresholds.
 """
 
+import logging
 import boto3
 import sagemaker
 from sagemaker.model_monitor import (
@@ -17,8 +11,10 @@ from sagemaker.model_monitor import (
     CronExpressionGenerator,
 )
 from sagemaker.model_monitor.dataset_format import DatasetFormat
-from loguru import logger
 import yaml
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 def load_config(path: str = "configs/config.yaml") -> dict:
@@ -26,142 +22,155 @@ def load_config(path: str = "configs/config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def enable_data_capture(endpoint_name: str, bucket: str, capture_pct: int = 100):
-    """
-    Enable data capture on the SageMaker endpoint.
-    Captured requests/responses are stored in S3 for monitoring.
-    """
-    sagemaker_client = boto3.client("sagemaker")
+def get_session(region: str):
+    boto_session = boto3.Session(region_name=region)
+    return sagemaker.Session(boto_session=boto_session)
 
-    data_capture_config = DataCaptureConfig(
-        enable_capture=True,
-        sampling_percentage=capture_pct,
-        destination_s3_uri=f"s3://{bucket}/monitoring/captured-data",
-        capture_options=["REQUEST", "RESPONSE"],
-        csv_content_types=["text/csv"],
-        json_content_types=["application/json"],
+
+def upload_baseline_data(bucket: str, region: str) -> str:
+    """Upload local processed data to S3 as baseline for Model Monitor."""
+    import numpy as np
+    import json
+    from pathlib import Path
+
+    s3 = boto3.client("s3", region_name=region)
+    baseline_s3_prefix = "monitoring/baseline-data"
+
+    # Use FD001 training data as baseline
+    data_dir = Path("data/processed/FD001")
+    X_train  = np.load(data_dir / "X_train.npy")
+    y_train  = np.load(data_dir / "y_train.npy")
+
+    # Sample 500 sequences max to keep baseline job fast
+    idx = list(range(min(500, len(X_train))))
+    records = []
+    for i in idx:
+        records.append({"features": X_train[i].tolist(), "label": int(y_train[i])})
+
+    # Write as JSON lines
+    tmp_path = "/tmp/baseline_data.jsonl"
+    with open(tmp_path, "w") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+
+    s3_key = f"{baseline_s3_prefix}/baseline_data.jsonl"
+    s3.upload_file(tmp_path, bucket, s3_key)
+    uri = f"s3://{bucket}/{baseline_s3_prefix}"
+    logger.info(f"Baseline data uploaded: {uri}  ({len(records)} records)")
+    return uri
+
+
+def enable_data_capture(endpoint_name: str, bucket: str, region: str, capture_pct: int = 100):
+    """Enable data capture on the endpoint."""
+    sm = boto3.client("sagemaker", region_name=region)
+
+    capture_config = {
+        "EnableCapture": True,
+        "InitialSamplingPercentage": capture_pct,
+        "DestinationS3Uri": f"s3://{bucket}/monitoring/captured-data",
+        "CaptureOptions": [{"CaptureMode": "Input"}, {"CaptureMode": "Output"}],
+        "CaptureContentTypeHeader": {
+            "JsonContentTypes": ["application/json"]
+        },
+    }
+
+    # Get current endpoint config name
+    endpoint_desc    = sm.describe_endpoint(EndpointName=endpoint_name)
+    current_cfg_name = endpoint_desc["EndpointConfigName"]
+    endpoint_cfg     = sm.describe_endpoint_config(EndpointConfigName=current_cfg_name)
+
+    new_cfg_name = f"{current_cfg_name}-capture"
+    sm.create_endpoint_config(
+        EndpointConfigName  = new_cfg_name,
+        ProductionVariants  = endpoint_cfg["ProductionVariants"],
+        DataCaptureConfig   = capture_config,
     )
+    sm.update_endpoint(EndpointName=endpoint_name, EndpointConfigName=new_cfg_name)
+    logger.info(f"Data capture enabled — waiting for endpoint update...")
 
-    logger.info(f"Data capture enabled on endpoint: {endpoint_name}")
-    return data_capture_config
+    waiter = sm.get_waiter("endpoint_in_service")
+    waiter.wait(EndpointName=endpoint_name,
+                WaiterConfig={"Delay": 30, "MaxAttempts": 20})
+    logger.info(f"Endpoint updated with data capture: {endpoint_name}")
 
 
-def create_baseline(endpoint_name: str, baseline_data_uri: str,
-                    bucket: str, role: str, session):
-    """
-    Run a baseline job to compute statistics on training data.
-    SageMaker Model Monitor uses this as the reference distribution.
-    """
+def create_baseline(baseline_data_uri: str, bucket: str, role: str, session):
+    """Run baseline job to compute statistics on training data."""
     monitor = DefaultModelMonitor(
-        role=role,
-        instance_count=1,
-        instance_type="ml.m5.xlarge",
-        volume_size_in_gb=20,
-        max_runtime_in_seconds=3600,
-        sagemaker_session=session,
+        role             = role,
+        instance_count   = 1,
+        instance_type    = "ml.t3.xlarge",
+        volume_size_in_gb= 20,
+        max_runtime_in_seconds = 3600,
+        sagemaker_session= session,
     )
 
-    baseline_job = monitor.suggest_baseline(
-        baseline_dataset=baseline_data_uri,
-        dataset_format=DatasetFormat.json(lines=False),
-        output_s3_uri=f"s3://{bucket}/monitoring/baseline",
-        wait=True,
-        logs=False,
+    monitor.suggest_baseline(
+        baseline_dataset = baseline_data_uri,
+        dataset_format   = DatasetFormat.json(lines=True),
+        output_s3_uri    = f"s3://{bucket}/monitoring/baseline-results",
+        wait             = True,
+        logs             = True,
     )
 
-    logger.info(f"Baseline job complete: {baseline_job.job_name}")
+    logger.info("Baseline job complete.")
     return monitor
 
 
 def schedule_monitoring(monitor, endpoint_name: str, bucket: str):
-    """
-    Schedule hourly monitoring checks against the baseline.
-    Violations are reported to CloudWatch.
-    """
+    """Schedule hourly monitoring checks."""
     monitor.create_monitoring_schedule(
-        monitor_schedule_name=f"{endpoint_name}-monitor",
-        endpoint_input=endpoint_name,
-        output_s3_uri=f"s3://{bucket}/monitoring/reports",
-        statistics=monitor.baseline_statistics(),
-        constraints=monitor.suggested_constraints(),
-        schedule_cron_expression=CronExpressionGenerator.hourly(),
-        enable_cloudwatch_metrics=True,
+        monitor_schedule_name    = f"{endpoint_name}-monitor",
+        endpoint_input           = endpoint_name,
+        output_s3_uri            = f"s3://{bucket}/monitoring/reports",
+        statistics               = monitor.baseline_statistics(),
+        constraints              = monitor.suggested_constraints(),
+        schedule_cron_expression = CronExpressionGenerator.hourly(),
+        enable_cloudwatch_metrics= True,
     )
-    logger.info(f"Monitoring schedule created for: {endpoint_name}")
+    logger.info(f"Monitoring schedule created: {endpoint_name}-monitor")
 
 
-def check_latest_violations(endpoint_name: str):
-    """Fetch and summarise latest monitoring violations."""
-    sagemaker_client = boto3.client("sagemaker")
-
-    response = sagemaker_client.list_monitoring_executions(
-        MonitoringScheduleName=f"{endpoint_name}-monitor",
-        MaxResults=5,
-        SortBy="CreationTime",
-        SortOrder="Descending",
-    )
-
-    executions = response.get("MonitoringExecutionSummaries", [])
-    if not executions:
-        logger.info("No monitoring executions found yet.")
-        return
-
-    latest = executions[0]
-    logger.info(f"Latest monitoring execution: {latest['MonitoringExecutionStatus']}")
-    logger.info(f"  Violations: {latest.get('MonitoringJobDefinitionName', 'N/A')}")
-    return latest
-
-
-def setup_cloudwatch_alarm(endpoint_name: str, drift_threshold: float = 0.15):
-    """
-    CloudWatch alarm that fires when feature drift metric exceeds threshold.
-    Useful for triggering automated retraining.
-    """
-    cloudwatch = boto3.client("cloudwatch")
-
-    cloudwatch.put_metric_alarm(
-        AlarmName=f"{endpoint_name}-drift-alarm",
-        AlarmDescription="Fires when sensor data distribution drifts from training baseline",
-        MetricName="feature_drift",
-        Namespace=f"SageMaker/{endpoint_name}",
-        Statistic="Average",
-        Period=3600,          # 1 hour
-        EvaluationPeriods=3,
-        Threshold=drift_threshold,
-        ComparisonOperator="GreaterThanThreshold",
-        TreatMissingData="notBreaching",
-        AlarmActions=[
-            # Replace with your SNS topic ARN
-            "arn:aws:sns:eu-central-1:ACCOUNT_ID:mlops-alerts",
-        ],
+def setup_cloudwatch_alarm(endpoint_name: str, region: str, drift_threshold: float = 0.15):
+    """CloudWatch alarm when drift exceeds threshold."""
+    cw = boto3.client("cloudwatch", region_name=region)
+    cw.put_metric_alarm(
+        AlarmName           = f"{endpoint_name}-drift-alarm",
+        AlarmDescription    = "Fires when sensor data distribution drifts from training baseline",
+        MetricName          = "feature_drift",
+        Namespace           = f"SageMaker/{endpoint_name}",
+        Statistic           = "Average",
+        Period              = 3600,
+        EvaluationPeriods   = 3,
+        Threshold           = drift_threshold,
+        ComparisonOperator  = "GreaterThanThreshold",
+        TreatMissingData    = "notBreaching",
     )
     logger.info(f"CloudWatch alarm created: {endpoint_name}-drift-alarm")
 
 
 if __name__ == "__main__":
-    config  = load_config()
-    session = sagemaker.Session()
-
+    config        = load_config()
+    region        = config["aws"]["region"]
     endpoint_name = config["aws"]["endpoint_name"]
     bucket        = config["aws"]["s3_bucket"]
     role          = config["aws"]["sagemaker_role"]
+    session       = get_session(region)
 
-    # 1. Enable capture
-    enable_data_capture(endpoint_name, bucket)
+    # 1. Upload baseline data to S3
+    baseline_uri = upload_baseline_data(bucket, region)
 
-    # 2. Baseline from training data
-    monitor = create_baseline(
-        endpoint_name,
-        baseline_data_uri=f"s3://{bucket}/data/processed/",
-        bucket=bucket,
-        role=role,
-        session=session,
-    )
+    # 2. Enable data capture on endpoint
+    enable_data_capture(endpoint_name, bucket, region)
 
-    # 3. Schedule hourly checks
+    # 3. Create baseline statistics
+    monitor = create_baseline(baseline_uri, bucket, role, session)
+
+    # 4. Schedule hourly monitoring
     schedule_monitoring(monitor, endpoint_name, bucket)
 
-    # 4. CloudWatch alarm
-    setup_cloudwatch_alarm(endpoint_name, config["monitoring"]["drift_threshold"])
+    # 5. CloudWatch alarm
+    drift_threshold = config.get("monitoring", {}).get("drift_threshold", 0.15)
+    setup_cloudwatch_alarm(endpoint_name, region, drift_threshold)
 
-    logger.success("Monitoring fully configured.")
+    logger.info("Monitoring fully configured.")
