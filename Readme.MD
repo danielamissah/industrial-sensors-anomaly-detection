@@ -270,7 +270,6 @@ Honest reporting is a core principle of responsible ML engineering. The pipeline
 * **MLflow** — Experiment tracking
 * **boto3** — AWS SDK
 * **Docker** — Custom training container
-* **[industrial-sensor-anomaly-detection](https://github.com/danielamissah/industrial-sensor-anomaly-detection)**
 
 ---
 
