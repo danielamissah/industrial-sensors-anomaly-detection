@@ -52,21 +52,21 @@ def build_pipeline(config: dict, sagemaker_session) -> Pipeline:
     bucket   = aws_cfg["s3_bucket"]
     region   = aws_cfg["region"]
 
-    # ── Pipeline Parameters (can override at run time) ────────────
+    # ── Pipeline Parameters (can override at run time) 
     processing_instance_count = ParameterInteger(name="ProcessingInstanceCount", default_value=1)
     training_instance_type    = ParameterString( name="TrainingInstanceType",    default_value=aws_cfg["instance_type_training"])
     model_approval_status     = ParameterString( name="ModelApprovalStatus",     default_value="PendingManualApproval")
     f1_threshold              = ParameterFloat(  name="F1Threshold",             default_value=0.75)
 
-    # ── S3 URIs ───────────────────────────────────────────────────
+    # S3 URIs for inputs/outputs
     s3_raw       = f"s3://{bucket}/data/raw"
     s3_processed = f"s3://{bucket}/data/processed"
     s3_model     = f"s3://{bucket}/models"
     s3_eval      = f"s3://{bucket}/evaluation"
 
-    # ────────────────────────────────────────────────────────────
+    
     # STEP 1: Feature Engineering (Processing Job)
-    # ────────────────────────────────────────────────────────────
+   
     sklearn_processor = SKLearnProcessor(
         framework_version="1.2-1",
         instance_type="ml.m5.xlarge",
@@ -92,9 +92,9 @@ def build_pipeline(config: dict, sagemaker_session) -> Pipeline:
         ],
     )
 
-    # ────────────────────────────────────────────────────────────
+   
     # STEP 2: Model Training
-    # ────────────────────────────────────────────────────────────
+   
     pytorch_estimator = Estimator(
         image_uri=sagemaker.image_uris.retrieve(
             "pytorch", region, version="2.1", py_version="py310",
@@ -131,9 +131,9 @@ def build_pipeline(config: dict, sagemaker_session) -> Pipeline:
         },
     )
 
-    # ────────────────────────────────────────────────────────────
+
     # STEP 3: Evaluation
-    # ────────────────────────────────────────────────────────────
+
     eval_processor = SKLearnProcessor(
         framework_version="1.2-1",
         instance_type="ml.m5.large",
@@ -166,11 +166,10 @@ def build_pipeline(config: dict, sagemaker_session) -> Pipeline:
         ],
     )
 
-    # ────────────────────────────────────────────────────────────
     # STEP 4: Quality Gate — only proceed if F1 >= threshold
-    # ────────────────────────────────────────────────────────────
+    
 
-    # ── If model passes: register in Model Registry ───────────────
+    # ── If model passes: register in Model Registry
     model_metrics = ModelMetrics(
         model_statistics=MetricsSource(
             s3_uri=f"{s3_eval}/evaluation_metrics.json",
@@ -207,9 +206,9 @@ def build_pipeline(config: dict, sagemaker_session) -> Pipeline:
         else_steps=[],  # could add SNS alert here
     )
 
-    # ────────────────────────────────────────────────────────────
+    # STEP 5: Deploy to real-time endpoint (not included in pipeline, would be manual after approval)
     # ASSEMBLE PIPELINE
-    # ────────────────────────────────────────────────────────────
+   
     pipeline = Pipeline(
         name="SensorAnomalyDetectionPipeline",
         parameters=[
