@@ -25,7 +25,7 @@ The full pipeline runs on **AWS SageMaker** with automated training jobs, model 
 
 Real-time Grafana dashboard connected to the live SageMaker endpoint via Prometheus. Metrics are scraped every 15 seconds from all 4 CMAPSS subsets simultaneously.
 
-[Grafana Dashboard](outputs/figures/grafana_dashboard.png)
+![Grafana Dashboard](outputs/figures/grafana_dashboard.png)
 
 **Dashboard panels:**
 
@@ -67,8 +67,7 @@ Real-time Grafana dashboard connected to the live SageMaker endpoint via Prometh
 Normal sequence (RUL > 30): error=0.003738 → NORMAL ✅
 Anomalous sequence (RUL ≤ 30): error=0.004397 → ANOMALY ✅
 
-[AWS Endpoint
-](outputs/figures/aws_endpoint.png)
+![img](outputs/figures/aws_endpoint.png)
 
 ---
 
@@ -85,81 +84,6 @@ Anomalous sequence (RUL ≤ 30): error=0.004397 → ANOMALY ✅
 | FD004  | 6                    | 2 (HPC+Fan) | 249           | Hardest — multi-condition, multi-fault |
 
 **Anomaly definition:** sequences where RUL ≤ 30 cycles are labelled as anomalous (pre-failure zone).
-
----
-
-## Architecture
-
-```
-# Sensor Anomaly Detection
-
-**End-to-end MLOps system for industrial predictive maintenance on AWS SageMaker**
-
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.6%2B-orange)](https://pytorch.org/)
-[![AWS SageMaker](https://img.shields.io/badge/AWS-SageMaker-yellow)](https://aws.amazon.com/sagemaker/)
-[![MLflow](https://img.shields.io/badge/MLflow-2.10-blue)](https://mlflow.org/)
-[![Grafana](https://img.shields.io/badge/Grafana-10.3-orange)](https://grafana.com/)
-[![Prometheus](https://img.shields.io/badge/Prometheus-2.50-red)](https://prometheus.io/)
-
----
-
-## Overview
-
-This project builds a production-ready machine learning pipeline that monitors multivariate sensor data from industrial turbofan engines and automatically detects early signs of mechanical degradation — hours or cycles before failure occurs.
-
-The system uses an **LSTM Autoencoder** trained exclusively on normal operating sequences. Anomalies are flagged when the model cannot accurately reconstruct an incoming sensor sequence — high reconstruction error signals a deviation from the learned normal operating pattern.
-
-The full pipeline runs on **AWS SageMaker** with automated training jobs, model versioning, real-time inference, and a live **Grafana + Prometheus monitoring dashboard** streaming metrics from the deployed endpoint.
-
----
-
-## Live Monitoring Dashboard
-
-Real-time Grafana dashboard connected to the live SageMaker endpoint via Prometheus. Metrics are scraped every 15 seconds from all 4 CMAPSS subsets simultaneously.
-
-![Grafana Dashboard](outputs/figures/grafana-dashboard.png)
-
-**Dashboard panels:**
-- **Anomaly Rate (%) — Rolling 5 min**: per-subset anomaly rate over time — FD001 ~10% (mostly normal), FD002-004 elevated (cross-subset distribution shift)
-- **Current Anomaly Rate**: live aggregate — 75% across all subsets
-- **Reconstruction Error vs Threshold**: avg error 0.0331 vs threshold 0.00394 — clear separation
-- **Reconstruction Error over Time**: FD001 near zero (normal), FD002-004 consistently elevated
-- **Inference Latency**: avg ~100-200ms, p95 spike tracking
-- **2,280 total requests** processed | **1,768 anomalies** detected | **1.78 req/s**
-- **Endpoint Health**: all 4 subsets UP ✅
-
----
-
-## AWS Deployment (Live)
-
-| Component | Status | Details |
-|-----------|--------|---------|
-| S3 data bucket | ✅ Live | `s3://sensor-anomaly-pipeline/` (eu-central-1) |
-| SageMaker Training Job | ✅ Completed | `sensor-anomaly-FD001-20260312-060109` — 455 billable seconds |
-| Model artifacts | ✅ In S3 | `s3://sensor-anomaly-pipeline/outputs/models/.../model.tar.gz` |
-| SageMaker Endpoint | ✅ InService | `sensor-anomaly-endpoint-V7` (ml.t2.medium, eu-central-1) |
-| Real-time inference | ✅ Tested | Live endpoint returning predictions on real CMAPSS sequences |
-| Grafana monitoring | ✅ Live | Prometheus scraping endpoint every 15s, 9-panel dashboard |
-| MLflow tracking | ✅ Local | Experiment tracking with params, metrics, model artifacts |
-| Model Monitor code | ✅ Written | Requires AWS Service Quotas increase for processing jobs |
-
-### Live Endpoint Test Results
-
-![AWS Endpoint](outputs/figures/aws_endpoint.png)
-
-```json
-{
-  "anomaly":               [true,  false],
-  "reconstruction_error":  [0.004397, 0.003738],
-  "threshold":             0.003942,
-  "anomaly_flags":         [true,  false],
-  "anomaly_rate":          0.5
-}
-```
-
-Normal sequence (RUL > 30): error=0.003738 → NORMAL ✅
-Anomalous sequence (RUL ≤ 30): error=0.004397 → ANOMALY ✅
 
 ---
 
