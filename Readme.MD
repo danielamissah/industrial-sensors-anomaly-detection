@@ -350,7 +350,7 @@ python scripts/test_endpoint.py --real
 
 ---
 
-## MLOps Concepts Demonstrated
+## MLOps Concepts
 
 | Concept              | Implementation               | Status           |
 | -------------------- | ---------------------------- | ---------------- |
