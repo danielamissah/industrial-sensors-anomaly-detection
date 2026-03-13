@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: anomaly-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.3.0
+    container_name: anomaly-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  metrics-exporter:
+    image: python:3.11-slim
+    container_name: anomaly-metrics-exporter
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../:/app
+    working_dir: /app
+    command: >
+      sh -c "pip install prometheus-client boto3 numpy pandas pyyaml loguru sagemaker --quiet &&
+             python src/monitoring/metrics_exporter.py"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-central-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

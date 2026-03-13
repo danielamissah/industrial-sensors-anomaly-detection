@@ -4,7 +4,6 @@ data/processed/
 
 # Model outputs — large binary files
 outputs/models/
-outputs/figures/
 outputs/reports/
 outputs/logs/
 

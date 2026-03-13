@@ -1,0 +1,172 @@
+{
+  "title": "Sensor Anomaly Detection — Live Monitoring",
+  "uid": "sensor-anomaly-detection",
+  "version": 1,
+  "schemaVersion": 38,
+  "refresh": "15s",
+  "tags": ["mlops", "anomaly-detection", "lstm", "sagemaker"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Anomaly Rate (%) — Rolling 5 min",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 16, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(sad_anomalies_total[5m]) / rate(sad_inference_requests_total[5m]) * 100",
+          "legendFormat": "{{subset}} anomaly rate %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "steps": [
+              { "color": "green",  "value": 0  },
+              { "color": "orange", "value": 20 },
+              { "color": "red",    "value": 40 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Current Anomaly Rate",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "targets": [
+        {
+          "expr": "avg(sad_anomaly_rate) * 100",
+          "legendFormat": "Anomaly %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              { "color": "green",  "value": 0  },
+              { "color": "orange", "value": 20 },
+              { "color": "red",    "value": 40 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Reconstruction Error vs Threshold",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 4, "w": 8, "h": 4 },
+      "targets": [
+        {
+          "expr": "avg(sad_reconstruction_error)",
+          "legendFormat": "Avg Recon Error"
+        },
+        {
+          "expr": "avg(sad_anomaly_threshold)",
+          "legendFormat": "Threshold"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Reconstruction Error over Time",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sad_reconstruction_error",
+          "legendFormat": "{{subset}} recon error"
+        },
+        {
+          "expr": "sad_anomaly_threshold",
+          "legendFormat": "{{subset}} threshold"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Inference Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(sad_inference_latency_seconds_sum[1m]) / rate(sad_inference_latency_seconds_count[1m]) * 1000",
+          "legendFormat": "Avg latency (ms)"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(sad_inference_latency_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p95 latency (ms)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Total Inference Requests",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(sad_inference_requests_total)", "legendFormat": "Total" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Requests per Second",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(rate(sad_inference_requests_total[1m]))", "legendFormat": "req/s" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Total Anomalies Detected",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(sad_anomalies_total)", "legendFormat": "Anomalies" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0   },
+              { "color": "red",   "value": 100 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Endpoint Health",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sad_endpoint_healthy", "legendFormat": "{{subset}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": {
+            "steps": [
+              { "color": "red",   "value": 0 },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {}
+}

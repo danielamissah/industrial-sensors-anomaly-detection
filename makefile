@@ -68,3 +68,26 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; true
 	find . -name "*.pyc" -delete 2>/dev/null; true
 	rm -rf .pytest_cache .coverage 2>/dev/null; true
+grafana-up:
+	cd infrastructure && docker compose up -d
+	@echo "Grafana:    http://localhost:3000  (admin/admin)"
+	@echo "Prometheus: http://localhost:9090"
+	@echo "Metrics:    http://localhost:8000/metrics"
+
+grafana-down:
+	cd infrastructure && docker compose down
+
+metrics:
+	$(PYPATH) python src/monitoring/metrics_exporter.py --config $(CONFIG)
+
+grafana-up:
+	cd infrastructure && docker compose up -d
+	@echo "Grafana:    http://localhost:3000  (admin/admin)"
+	@echo "Prometheus: http://localhost:9090"
+	@echo "Metrics:    http://localhost:8000/metrics"
+
+grafana-down:
+	cd infrastructure && docker compose down
+
+metrics:
+	$(PYPATH) python src/monitoring/metrics_exporter.py --config $(CONFIG)

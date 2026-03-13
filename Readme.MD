@@ -1,4 +1,5 @@
-# Sensor Anomaly Detection
+
+# Industrial Sensor Anomaly Detection
 
 **End-to-end MLOps system for industrial predictive maintenance on AWS SageMaker**
 
@@ -6,23 +7,40 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6%2B-orange)](https://pytorch.org/)
 [![AWS SageMaker](https://img.shields.io/badge/AWS-SageMaker-yellow)](https://aws.amazon.com/sagemaker/)
 [![MLflow](https://img.shields.io/badge/MLflow-2.10-blue)](https://mlflow.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](https://claude.ai/chat/LICENSE)
+[![Grafana](https://img.shields.io/badge/Grafana-10.3-orange)](https://grafana.com/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-2.50-red)](https://prometheus.io/)
 
 ---
 
 ## Overview
 
-This project builds a production-ready machine learning pipeline that monitors multivariate sensor data from industrial turbofan engines and automatically detects early signs of mechanical degradation — hours or cycles before failure occurs.
+This project builds a production-ready machine learning pipeline that monitors multivariate sensor data from industrial turbofan engines and automatically detects early signs of mechanical degradation; hours or cycles before failure occurs.
 
 The system uses an **LSTM Autoencoder** trained exclusively on normal operating sequences. Anomalies are flagged when the model cannot accurately reconstruct an incoming sensor sequence — high reconstruction error signals a deviation from the learned normal operating pattern.
 
-The full pipeline runs on **AWS SageMaker** with automated training jobs, model versioning, real-time inference, and statistical drift monitoring code.
+The full pipeline runs on **AWS SageMaker** with automated training jobs, model versioning, real-time inference, and a live **Grafana + Prometheus monitoring dashboard** streaming metrics from the deployed endpoint.
+
+---
+
+## Live Monitoring Dashboard
+
+Real-time Grafana dashboard connected to the live SageMaker endpoint via Prometheus. Metrics are scraped every 15 seconds from all 4 CMAPSS subsets simultaneously.
+
+![Grafana Dashboard]((outputs/figures/grafana-dashboard.png))
+
+**Dashboard panels:**
+
+* **Anomaly Rate (%) — Rolling 5 min** : per-subset anomaly rate over time — FD001 ~10% (mostly normal), FD002-004 elevated (cross-subset distribution shift)
+* **Current Anomaly Rate** : live aggregate — 75% across all subsets
+* **Reconstruction Error vs Threshold** : avg error 0.0331 vs threshold 0.00394 — clear separation
+* **Reconstruction Error over Time** : FD001 near zero (normal), FD002-004 consistently elevated
+* **Inference Latency** : avg ~100-200ms, p95 spike tracking
+* **2,280 total requests** processed | **1,768 anomalies** detected | **1.78 req/s**
+* **Endpoint Health** : all 4 subsets UP ✅
 
 ---
 
 ## AWS Deployment (Live)
-
-This pipeline has been deployed and tested end-to-end on AWS:
 
 | Component              | Status       | Details                                                          |
 | ---------------------- | ------------ | ---------------------------------------------------------------- |
@@ -31,12 +49,11 @@ This pipeline has been deployed and tested end-to-end on AWS:
 | Model artifacts        | ✅ In S3     | `s3://sensor-anomaly-pipeline/outputs/models/.../model.tar.gz` |
 | SageMaker Endpoint     | ✅ InService | `sensor-anomaly-endpoint-V7`(ml.t2.medium, eu-central-1)       |
 | Real-time inference    | ✅ Tested    | Live endpoint returning predictions on real CMAPSS sequences     |
+| Grafana monitoring     | ✅ Live      | Prometheus scraping endpoint every 15s, 9-panel dashboard        |
 | MLflow tracking        | ✅ Local     | Experiment tracking with params, metrics, model artifacts        |
 | Model Monitor code     | ✅ Written   | Requires AWS Service Quotas increase for processing jobs         |
 
 ### Live Endpoint Test Results
-
-Real sensor sequences from FD001 test set sent to the live endpoint:
 
 ```json
 {
@@ -48,7 +65,8 @@ Real sensor sequences from FD001 test set sent to the live endpoint:
 }
 ```
 
-The model correctly assigns higher reconstruction error to the anomalous sequence (RUL ≤ 30) and lower error to the normal sequence — confirming real discriminative signal through the full SageMaker inference stack.
+Normal sequence (RUL > 30): error=0.003738 → NORMAL ✅
+Anomalous sequence (RUL ≤ 30): error=0.004397 → ANOMALY ✅
 
 ---
 
@@ -63,8 +81,6 @@ The model correctly assigns higher reconstruction error to the anomalous sequenc
 | FD002  | 6                    | 1 (HPC)     | 260           | Multi-condition, same fault             |
 | FD003  | 1                    | 2 (HPC+Fan) | 100           | Single condition, two fault types       |
 | FD004  | 6                    | 2 (HPC+Fan) | 249           | Hardest — multi-condition, multi-fault |
-
-Each subset has 3 files: `train_FDxxx.txt`, `test_FDxxx.txt`, `RUL_FDxxx.txt` — 12 files total.
 
 **Anomaly definition:** sequences where RUL ≤ 30 cycles are labelled as anomalous (pre-failure zone).
 
@@ -97,6 +113,7 @@ Raw Sensor Data (S3)
            ▼
 ┌─────────────────────┐
 │  SageMaker Endpoint  │  Real-time inference, live on AWS
+│  + Grafana Stack     │  Prometheus scraping → live 9-panel dashboard
 │  + Model Monitor     │  Hourly drift checks → CloudWatch alarms
 └─────────────────────┘
 ```
@@ -105,8 +122,6 @@ Raw Sensor Data (S3)
 
 ## Results (Baseline — v1.0)
 
-Models trained and evaluated independently on each CMAPSS subset.
-
 | Subset | F1 Score | AUC-ROC | Precision | Recall | Anomaly Rate (True) | Anomaly Rate (Pred) |
 | ------ | -------- | ------- | --------- | ------ | ------------------- | ------------------- |
 | FD001  | 0.134    | 0.655   | 0.094     | 0.235  | 4.0%                | 10.0%               |
@@ -114,20 +129,7 @@ Models trained and evaluated independently on each CMAPSS subset.
 | FD003  | 0.035    | 0.713   | 0.022     | 0.086  | 2.5%                | 9.8%                |
 | FD004  | 0.063    | 0.584   | 0.044     | 0.110  | 2.9%                | 7.3%                |
 
-### Interpretation
-
-The AUC-ROC scores (0.58–0.71) confirm the model is learning a real signal — confirmed by the live endpoint correctly ranking anomalous sequences above normal ones by reconstruction error. F1 and precision are low due to threshold miscalibration: the 95th percentile threshold is too permissive when true anomaly rates are only 2.5–5%.
-
-**Root cause:** The model flags 6–10% of sequences as anomalous but true anomaly rate is 2.5–5%. Raising the threshold to the 98th–99th percentile is the primary planned improvement.
-
-**Planned improvements (v1.1):**
-
-* Raise threshold to 99th percentile
-* Experiment with longer sequence windows (currently 50 cycles)
-* Supervised fine-tuning using RUL labels to sharpen the decision boundary
-* Class-weighted reconstruction loss
-
-> The pipeline infrastructure is fully operational and deployed on AWS. Model performance is an active area of iteration — documenting the baseline and its known failure modes is standard practice in production ML.
+AUC-ROC confirms real signal. Low F1 is a threshold calibration issue — the 95th percentile threshold is too permissive for true anomaly rates of 2.5–5%. Planned fix: raise to 99th percentile.
 
 ---
 
@@ -135,29 +137,24 @@ The AUC-ROC scores (0.58–0.71) confirm the model is learning a real signal —
 
 ```
 sensor-anomaly-detection/
-├── configs/config.yaml              # All settings — models, AWS, thresholds
-├── data/
-│   ├── raw/                         # 12 NASA CMAPSS files (also in S3)
-│   └── processed/                   # Auto-generated after make features
+├── configs/config.yaml
 ├── src/
-│   ├── ingestion/download_data.py   # Data validation + S3 upload
-│   ├── features/engineer.py         # Full feature pipeline (all 4 subsets)
-│   ├── models/
-│   │   ├── lstm_autoencoder.py      # Model architecture
-│   │   └── train.py                 # Training loop + SageMaker + MLflow
-│   ├── evaluation/evaluate.py       # Metrics + SHAP + cross-subset plots
-│   ├── serving/inference.py         # SageMaker inference handler
-│   └── monitoring/drift_monitor.py  # Model Monitor + CloudWatch setup
-├── pipelines/sagemaker_pipeline.py  # Full SageMaker Pipeline DAG
-├── scripts/
-│   ├── run_training_job.py          # Launch SageMaker Training Job
-│   ├── deploy_endpoint.py           # Deploy trained model to endpoint
-│   └── test_endpoint.py             # Test live endpoint with real data
-├── infrastructure/docker/Dockerfile # Custom SageMaker training container
-├── outputs/
-│   ├── models/FD001-FD004/          # best_model.pt, threshold.json
-│   ├── figures/                      # Error distributions, ROC, SHAP plots
-│   └── reports/evaluation_report.json
+│   ├── ingestion/download_data.py
+│   ├── features/engineer.py
+│   ├── models/lstm_autoencoder.py + train.py
+│   ├── evaluation/evaluate.py
+│   ├── serving/inference.py
+│   └── monitoring/
+│       ├── drift_monitor.py         # Model Monitor + CloudWatch
+│       └── metrics_exporter.py      # Prometheus metrics → Grafana
+├── infrastructure/
+│   ├── docker-compose.yml           # Grafana + Prometheus + exporter
+│   ├── prometheus/prometheus.yml
+│   ├── grafana/dashboards/          # Auto-provisioned dashboard JSON
+│   └── docker/Dockerfile
+├── pipelines/sagemaker_pipeline.py
+├── scripts/run_training_job.py + deploy_endpoint.py + test_endpoint.py
+├── outputs/figures/grafana_dashboard.png
 ├── Makefile
 └── requirements.txt
 ```
@@ -166,110 +163,65 @@ sensor-anomaly-detection/
 
 ## Setup
 
-### 1. Clone and install
-
 ```bash
 git clone https://github.com/YOUR_USERNAME/sensor-anomaly-detection.git
 cd sensor-anomaly-detection
 pip install -r requirements.txt
-```
-
-### 2. Download the dataset
-
-1. Go to: https://data.nasa.gov/Aerospace/CMAPSS-Jet-Engine-Simulated-Data/ff5v-kuh6
-2. Extract all 12 `.txt` files into `data/raw/`
-
-### 3. Configure AWS (for SageMaker)
-
-```bash
-aws configure  # region: eu-central-1
-```
-
-Update `configs/config.yaml`:
-
-```yaml
-aws:
-  s3_bucket: "your-bucket-name"
-  sagemaker_role: "arn:aws:iam::YOUR_ACCOUNT_ID:role/SageMakerExecutionRole"
+cp .env.example .env   # fill in AWS credentials
 ```
 
 ---
 
 ## Running the Pipeline
 
-### Local
+### Local training
 
 ```bash
-make features   # Feature engineering for all 4 subsets
-make train      # Train models (~15 min CPU)
-make evaluate   # Metrics + SHAP plots
-make mlflow     # MLflow UI at http://localhost:5001
+make features && make train && make evaluate
+make mlflow   # http://localhost:5001
+```
+
+### Grafana monitoring stack (requires Docker)
+
+```bash
+make grafana-up
+# Grafana:    http://localhost:3001  (creds: admin/admin)
+# Prometheus: http://localhost:9090
+# Metrics:    http://localhost:8000/metrics
+
+make grafana-down   # stop stack
 ```
 
 ### AWS SageMaker
 
 ```bash
-make data       # Upload raw data to S3
-
-# Launch training job (single subset)
 python scripts/run_training_job.py --subset FD001
-
-# Deploy to real-time endpoint
 python scripts/deploy_endpoint.py --job-name <job-name>
-
-# Test with real sensor data
 python scripts/test_endpoint.py --real
-
-# Configure drift monitoring (requires processing job quota > 0)
-make monitor
 ```
 
 ---
 
 ## MLOps Concepts Demonstrated
 
-| Concept              | Implementation                               | Status                 |
-| -------------------- | -------------------------------------------- | ---------------------- |
-| Cloud training       | SageMaker Training Job                       | ✅ Deployed & executed |
-| Model artifacts      | S3 versioned storage                         | ✅ Live                |
-| Real-time inference  | SageMaker Endpoint + custom handler          | ✅ Live & tested       |
-| Experiment tracking  | MLflow — params, metrics, artifacts         | ✅ Local               |
-| Explainability       | SHAP DeepExplainer — per-sensor attribution | ✅ Local               |
-| Data drift detection | SageMaker Model Monitor (hourly)             | ✅ Code written*       |
-| Alerting             | CloudWatch Alarms                            | ✅ Code written*       |
-| Full pipeline DAG    | SageMaker Pipelines (5-step)                 | ✅ Code written        |
-| Config management    | Single `config.yaml`                       | ✅                     |
-| Reproducibility      | Fixed seeds, saved scalers/thresholds        | ✅                     |
+| Concept              | Implementation               | Status           |
+| -------------------- | ---------------------------- | ---------------- |
+| Cloud training       | SageMaker Training Job       | ✅ Live          |
+| Real-time inference  | SageMaker Endpoint           | ✅ Live & tested |
+| Live monitoring      | Grafana + Prometheus         | ✅ Live          |
+| Experiment tracking  | MLflow                       | ✅ Local         |
+| Explainability       | SHAP DeepExplainer           | ✅ Local         |
+| Data drift detection | SageMaker Model Monitor      | ✅ Code written* |
+| Alerting             | CloudWatch Alarms            | ✅ Code written* |
+| Pipeline DAG         | SageMaker Pipelines (5-step) | ✅ Code written  |
 
-*Model Monitor and CloudWatch alarms are fully implemented in `src/monitoring/drift_monitor.py`. Execution requires AWS Service Quotas increase for SageMaker processing jobs (default quota is 0 on new accounts).
-
----
-
-## Key Design Decisions
-
-**Why an LSTM Autoencoder?**
-Industrial anomaly detection is fundamentally unsupervised — labelled failure data is scarce in real deployments. An autoencoder trained only on normal data generalises better than supervised classifiers when anomaly types are unknown in advance.
-
-**Why train one model per subset?**
-FD002 and FD004 have 6 distinct operating conditions. Training independently ensures each model learns the correct normal distribution for its environment.
-
-**Why per-condition normalisation for FD002/FD004?**
-Operating conditions cause large, systematic shifts in sensor readings. Normalising within each condition cluster removes this confound before the LSTM sees the data.
-
-**Why publish low baseline results?**
-Honest reporting is a core principle of responsible ML engineering. The pipeline is production-grade; model performance is an iterative process. The live endpoint demonstrating correct ranking of anomalous vs normal sequences shows the signal is real — the F1 gap is a calibration problem, not a modelling failure.
+*Requires AWS Service Quotas increase for SageMaker processing jobs.
 
 ---
 
 ## Technologies
 
-* **PyTorch 2.6+** — LSTM Autoencoder
-* **scikit-learn** — Preprocessing, metrics
-* **SHAP** — DeepExplainer sensor attribution
-* **AWS SageMaker** — Training jobs, Endpoints, Pipelines, Model Monitor
-* **MLflow** — Experiment tracking
-* **boto3** — AWS SDK
-* **Docker** — Custom training container
+PyTorch 2.6 · AWS SageMaker · Grafana · Prometheus · MLflow · SHAP · Docker · boto3
 
 ---
 
