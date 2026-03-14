@@ -195,10 +195,11 @@ sensor-anomaly-detection/
 ## Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/sensor-anomaly-detection.git
-cd sensor-anomaly-detection
+git clone https://github.com/danielamissah/industrial-sensors-anomaly-detection.git
+cd industrial-sensors-anomaly-detection
 pip install -r requirements.txt
 cp .env.example .env   # fill in AWS credentials
+
 ```
 
 ---
