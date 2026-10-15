@@ -206,7 +206,7 @@ def build_pipeline(config: dict, sagemaker_session) -> Pipeline:
         else_steps=[],  # could add SNS alert here
     )
 
-    # STEP 5: Deploy to real-time endpoint (not included in pipeline, would be manual after approval)
+    # STEP 5: Deploy to real-time endpoint (not included in pipeline)
     # ASSEMBLE PIPELINE
    
     pipeline = Pipeline(
